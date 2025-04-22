@@ -57,10 +57,11 @@ public class MobileScanner: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     private var imagesCurrentlyBeingProcessed = false
     
     public var timeoutSeconds: Double = 0
-    // CUSTOM ROTATION FIX BEGIN 
+    // CUSTOM ROTATION FIX BEGIN
     private var currentVideoOutput: AVCaptureVideoDataOutput?
+    private var currentOrientation: UIDeviceOrientation = UIDevice.current.orientation
     // CUSTOM ROTATION FIX END
-    
+
     init(registry: FlutterTextureRegistry?, mobileScannerCallback: @escaping MobileScannerCallback, torchModeChangeCallback: @escaping TorchModeChangeCallback, zoomScaleChangeCallback: @escaping ZoomScaleChangeCallback) {
         self.registry = registry
         self.mobileScannerCallback = mobileScannerCallback
@@ -70,7 +71,6 @@ public class MobileScanner: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         // CUSTOM ROTATION FIX BEGIN
         NotificationCenter.default.addObserver(self, selector: #selector(deviceOrientationDidChange), name: UIDevice.orientationDidChangeNotification, object: nil)
         // CUSTOM ROTATION FIX END
-        
     }
 
     /// Get the default camera device for the given `position`.
@@ -242,7 +242,6 @@ public class MobileScanner: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                 break
             }
         }
-        
         // Add video output.
         let videoOutput = AVCaptureVideoDataOutput()
 
@@ -254,14 +253,15 @@ public class MobileScanner: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         videoOutput.setSampleBufferDelegate(self, queue: DispatchQueue.main)
 
         captureSession!.addOutput(videoOutput)
+
         // CUSTOM ROTATION FIX BEGIN
-        // for connection in videoOutput.connections {
-        //     connection.videoOrientation = .portrait
-        //     if cameraPosition == .front && connection.isVideoMirroringSupported {
-        //         connection.isVideoMirrored = true
-        //     }
-        // }
-        self.currentVideoOutput = videoOutput
+        //for connection in videoOutput.connections {
+        //        connection.videoOrientation = .portrait
+        //        if cameraPosition == .front && connection.isVideoMirroringSupported {
+        //            connection.isVideoMirrored = true
+        //        }
+        //    }
+        currentVideoOutput = videoOutput
         updateVideoOrientation()
         // CUSTOM ROTATION FIX END
         captureSession!.commitConfiguration()
@@ -317,28 +317,38 @@ public class MobileScanner: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
 
     // CUSTOM ROTATION FIX BEGIN
     @objc private func deviceOrientationDidChange() {
+       let orientation = UIDevice.current.orientation
+        guard orientation != .faceUp, orientation != .faceDown, orientation != .unknown else { return }
+
         updateVideoOrientation()
     }
 
     private func updateVideoOrientation() {
         guard let videoOutput = self.currentVideoOutput else { return }
-        let orientation = UIDevice.current.orientation
-
         let newOrientation: AVCaptureVideoOrientation
-        switch orientation {
-        case .portrait:
+
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            let orientation = UIDevice.current.orientation
+            switch orientation {
+                case .portrait:
+                    newOrientation = .portrait
+                case .portraitUpsideDown:
+                    newOrientation = .portraitUpsideDown
+                case .landscapeLeft:
+                    newOrientation = .landscapeRight
+                case .landscapeRight:
+                    newOrientation = .landscapeLeft
+                default:
+                    newOrientation = .portrait
+                }
+        } else {
             newOrientation = .portrait
-        case .portraitUpsideDown:
-            newOrientation = .portraitUpsideDown
-        case .landscapeLeft:
-            newOrientation = .landscapeRight
-        case .landscapeRight:
-            newOrientation = .landscapeLeft
-        default:
-            return
         }
 
         for connection in videoOutput.connections {
+            if videoPosition == .front && connection.isVideoMirroringSupported {
+                connection.isVideoMirrored = true
+            }
             if connection.isVideoOrientationSupported {
                 connection.videoOrientation = newOrientation
             }
@@ -526,12 +536,13 @@ public class MobileScanner: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         }
         return Unmanaged<CVPixelBuffer>.passRetained(latestBuffer)
     }
-    
+
     // CUSTOM ROTATION FIX BEGIN
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
     // CUSTOM ROTATION FIX END
+
     
     struct MobileScannerStartParameters {
         var width: Double = 0.0
