@@ -57,13 +57,20 @@ public class MobileScanner: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     private var imagesCurrentlyBeingProcessed = false
     
     public var timeoutSeconds: Double = 0
-
+    // CUSTOM ROTATION FIX BEGIN 
+    private var currentVideoOutput: AVCaptureVideoDataOutput?
+    // CUSTOM ROTATION FIX END
+    
     init(registry: FlutterTextureRegistry?, mobileScannerCallback: @escaping MobileScannerCallback, torchModeChangeCallback: @escaping TorchModeChangeCallback, zoomScaleChangeCallback: @escaping ZoomScaleChangeCallback) {
         self.registry = registry
         self.mobileScannerCallback = mobileScannerCallback
         self.torchModeChangeCallback = torchModeChangeCallback
         self.zoomScaleChangeCallback = zoomScaleChangeCallback
         super.init()
+        // CUSTOM ROTATION FIX BEGIN
+        NotificationCenter.default.addObserver(self, selector: #selector(deviceOrientationDidChange), name: UIDevice.orientationDidChangeNotification, object: nil)
+        // CUSTOM ROTATION FIX END
+        
     }
 
     /// Get the default camera device for the given `position`.
@@ -247,12 +254,16 @@ public class MobileScanner: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         videoOutput.setSampleBufferDelegate(self, queue: DispatchQueue.main)
 
         captureSession!.addOutput(videoOutput)
-        for connection in videoOutput.connections {
-            connection.videoOrientation = .portrait
-            if cameraPosition == .front && connection.isVideoMirroringSupported {
-                connection.isVideoMirrored = true
-            }
-        }
+        // CUSTOM ROTATION FIX BEGIN
+        // for connection in videoOutput.connections {
+        //     connection.videoOrientation = .portrait
+        //     if cameraPosition == .front && connection.isVideoMirroringSupported {
+        //         connection.isVideoMirrored = true
+        //     }
+        // }
+        self.currentVideoOutput = videoOutput
+        updateVideoOrientation()
+        // CUSTOM ROTATION FIX END
         captureSession!.commitConfiguration()
 
         backgroundQueue.async {
@@ -303,6 +314,37 @@ public class MobileScanner: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
             completion(MobileScannerStartParameters())
         }
     }
+
+    // CUSTOM ROTATION FIX BEGIN
+    @objc private func deviceOrientationDidChange() {
+        updateVideoOrientation()
+    }
+
+    private func updateVideoOrientation() {
+        guard let videoOutput = self.currentVideoOutput else { return }
+        let orientation = UIDevice.current.orientation
+
+        let newOrientation: AVCaptureVideoOrientation
+        switch orientation {
+        case .portrait:
+            newOrientation = .portrait
+        case .portraitUpsideDown:
+            newOrientation = .portraitUpsideDown
+        case .landscapeLeft:
+            newOrientation = .landscapeRight
+        case .landscapeRight:
+            newOrientation = .landscapeLeft
+        default:
+            return
+        }
+
+        for connection in videoOutput.connections {
+            if connection.isVideoOrientationSupported {
+                connection.videoOrientation = newOrientation
+            }
+        }
+    }
+    // CUSTOM ROTATION FIX END
 
     /// Stop scanning for barcodes
     func stop() throws {
@@ -484,6 +526,12 @@ public class MobileScanner: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         }
         return Unmanaged<CVPixelBuffer>.passRetained(latestBuffer)
     }
+    
+    // CUSTOM ROTATION FIX BEGIN
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+    // CUSTOM ROTATION FIX END
     
     struct MobileScannerStartParameters {
         var width: Double = 0.0
